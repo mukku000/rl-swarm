@@ -313,16 +313,6 @@ else
     echo -e "\n${CYAN}ORG_ID has been set to: ${BOLD}$ORG_ID\n${NC}"
 
     echo -e "${CYAN}Waiting for API key to become activated...${NC}"
-    while true; do
-        STATUS=$(curl -s "http://localhost:3000/api/get-api-key-status?orgId=$ORG_ID")
-        if [[ "$STATUS" == "activated" ]]; then
-            echo -e "${GREEN}${BOLD}✓ Success! API key is activated! Proceeding...\n${NC}"
-            break
-        else
-            echo -e "${YELLOW}Waiting for API key to be activated...${NC}"
-            sleep 5
-        fi
-    done
 
     # Cleanup function for graceful shutdown
     cleanup() {
