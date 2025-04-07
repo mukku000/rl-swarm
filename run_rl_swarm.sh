@@ -4,6 +4,7 @@ ROOT=$PWD
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+BRIGHT_GREEN='\033[1;92m'
 PURPLE='\033[0;95m'
 BLUE='\033[0;94m'
 YELLOW='\033[0;33m'
@@ -133,173 +134,29 @@ else
         kill $SERVER_PID 2>/dev/null || true
         exit 1
     fi
+    
+    npm list ngrok || npm install ngrok
 
-    print_step 1 "Detecting system architecture"
-    ARCH=$(uname -m)
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-    if [ "$ARCH" = "x86_64" ]; then
-        NGROK_ARCH="amd64"
-        echo -e "${GREEN}Detected x86_64 architecture.${NC}"
-    elif [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-        NGROK_ARCH="arm64"
-        echo -e "${GREEN}Detected ARM64 architecture.${NC}"
-    elif [[ "$ARCH" == arm* ]]; then
-        NGROK_ARCH="arm"
-        echo -e "${GREEN}Detected ARM architecture.${NC}"
-    else
-        echo -e "${RED}Unsupported architecture: $ARCH. Please use a supported system.${NC}"
-        exit 1
-    fi
-
-    print_step 2 "Downloading and installing ngrok"
-    echo -e "${YELLOW}Downloading ngrok for $OS-$NGROK_ARCH...${NC}"
-    wget -q --show-progress "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-$OS-$NGROK_ARCH.tgz"
-    check_success
-
-    echo -e "${YELLOW}Extracting ngrok...${NC}"
-    tar -xzf "ngrok-v3-stable-$OS-$NGROK_ARCH.tgz"
-    check_success
-
-    echo -e "${YELLOW}Moving ngrok to /usr/local/bin/ (requires sudo)...${NC}"
-    sudo mv ngrok /usr/local/bin/
-    check_success
-
-    echo -e "${YELLOW}Cleaning up temporary files...${NC}"
-    rm "ngrok-v3-stable-$OS-$NGROK_ARCH.tgz"
-    check_success
-
-    print_step 3 "Authenticating ngrok"
-    while true; do
-        echo -e "\n${YELLOW}To get your authtoken:${NC}"
-        echo "1. Sign up or log in at https://dashboard.ngrok.com"
-        echo "2. Go to 'Your Authtoken' section: https://dashboard.ngrok.com/get-started/your-authtoken"
-        echo "3. Click on the eye icon to reveal your ngrok auth token"
-        echo "4. Copy that auth token and paste it in the prompt below"
-        echo -e "\n${BOLD}Please enter your ngrok authtoken:${NC}"
-        read -p "> " NGROK_TOKEN
-
-        if [ -z "$NGROK_TOKEN" ]; then
-            echo -e "${RED}No token provided. Please enter a valid token.${NC}"
-            continue
-        fi
-
-        # Ensure any previous ngrok processes are killed before authentication
-        pkill -f ngrok || true
-        sleep 2
-
-        ngrok authtoken "$NGROK_TOKEN"
-        if [ $? -eq 0 ]; then
-            echo -e "${GREEN}✓ Successfully authenticated ngrok!${NC}"
-            break
-        else
-            echo -e "${RED}✗ Authentication failed. Please check your token and try again.${NC}"
-        fi
-    done
-
-    print_step 4 "Preparing for ngrok tunnel"
-    # Kill any existing ngrok processes
-    pkill -f ngrok || true
-    sleep 3
-
-    # Find available ports for ngrok web interface
-    NGROK_WEB_PORT=4040
-    while lsof -i :$NGROK_WEB_PORT >/dev/null 2>&1; do
-        echo -e "${YELLOW}Port $NGROK_WEB_PORT is in use. Trying next port...${NC}"
-        NGROK_WEB_PORT=$((NGROK_WEB_PORT + 1))
-    done
-    echo -e "${GREEN}Will use port $NGROK_WEB_PORT for ngrok web interface.${NC}"
-
-    print_step 5 "Starting ngrok tunnel on port $PORT"
-
-    get_url_from_method1() {
-        # Method 1: JSON log parsing
-        local url=$(grep -o '"url":"https://[^"]*' ngrok_output.log 2>/dev/null | head -n1 | cut -d'"' -f4)
-        echo "$url"
+    # Create a separate script file for ngrok to avoid blocking the main script
+    cat <<EOF > run_ngrok.js
+import ngrok from 'ngrok';
+(async function() {
+    try {
+        const url = await ngrok.connect($PORT);
+        console.log('\x1b[1;92m✓ Success! Please visit this website and log in using your email : \x1b[0m\x1b[0;94m' + url + '\x1b[0m');
+    } catch (err) {
+        console.error('\x1b[31mFailed to start ngrok:\x1b[0m', err);
+        process.exit(1);
     }
+})();
+EOF
 
-    get_url_from_method2() {
-        # Method 2: API approach with web interface port
-        local url=""
-        for try_port in $(seq $NGROK_WEB_PORT $((NGROK_WEB_PORT + 5))); do
-            if curl -s "http://localhost:$try_port/api/tunnels" >/dev/null 2>&1; then
-                url=$(curl -s "http://localhost:$try_port/api/tunnels" | grep -o '"public_url":"https://[^"]*' | head -n1 | cut -d'"' -f4)
-                if [ -n "$url" ]; then
-                    break
-                fi
-            fi
-        done
-        echo "$url"
-    }
-
-    get_url_from_method3() {
-        # Method 3: Old-style output parsing
-        local url=$(grep -m 1 "Forwarding" ngrok_output.log 2>/dev/null | grep -o "https://[^ ]*")
-        echo "$url"
-    }
-
-    get_url_from_method4() {
-        # Method 4: Alternative approach with explicit region  
-        # Kill existing ngrok process and restart with explicit settings
-        kill $NGROK_PID 2>/dev/null || true
-        sleep 3
-        
-        ngrok http --region us --log=stdout "$PORT" > ngrok_output_alt.log 2>&1 &
-        NGROK_PID=$!
-        
-        sleep 10
-        
-        # Try to extract URL from alternative log
-        local url=$(grep -o '"url":"https://[^"]*' ngrok_output_alt.log 2>/dev/null | head -n1 | cut -d'"' -f4)
-        
-        # If that fails, try API on multiple ports
-        if [ -z "$url" ]; then
-            for check_port in $(seq 4040 4050); do
-                if curl -s "http://localhost:$check_port/api/tunnels" >/dev/null 2>&1; then
-                    url=$(curl -s "http://localhost:$check_port/api/tunnels" | grep -o '"public_url":"https://[^"]*' | head -n1 | cut -d'"' -f4)
-                    if [ -n "$url" ]; then
-                        break
-                    fi
-                fi
-            done
-        fi
-        
-        echo "$url"
-    }
-
-    # Start ngrok with default configuration first
-    ngrok http "$PORT" --log=stdout --log-format=json --log-level=info > ngrok_output.log 2>&1 &
+    # Launch ngrok tunnel in the background
+    echo -e "\n${CYAN}Starting ngrok tunnel...${NC}"
+    node run_ngrok.js &
     NGROK_PID=$!
-    sleep 5
-
-    # Try all methods in sequence  
-    echo -e "\n${PURPLE}Trying method 1...${NC}"
-    FORWARDING_URL=$(get_url_from_method1)
     
-    if [ -z "$FORWARDING_URL" ]; then
-        echo -e "\n${PURPLE}Method 1 failed. Trying method 2...${NC}"
-        FORWARDING_URL=$(get_url_from_method2)
-    fi
-    
-    if [ -z "$FORWARDING_URL" ]; then
-        echo -e "\n${PURPLE}Method 2 failed. Trying method 3...${NC}"
-        FORWARDING_URL=$(get_url_from_method3)
-    fi
-    
-    if [ -z "$FORWARDING_URL" ]; then
-        echo -e "\n${PURPLE}Method 3 failed. Trying method 4...${NC}"
-        FORWARDING_URL=$(get_url_from_method4)
-    fi
-
-    if [ -n "$FORWARDING_URL" ]; then
-        echo -e "${GREEN}${BOLD}✓ Success! Please visit this website and log in using your email:${NC} ${CYAN}${BOLD}${FORWARDING_URL}${NC}"
-    else
-        echo -e "\n${BLUE}Don't worry, you can use this manual method. Please follow these instructions:${NC}"
-        echo "1. Open Command Prompt on your PC."
-        echo -e "2. Paste this command into Command Prompt: ssh -L 3000:localhost:$PORT $(whoami)@$(curl -s ifconfig.me)"
-        echo "3. After connecting, visit this website and log in using your email: http://localhost:3000/"
-        echo "4. Please note that the website may take up to 1 minute to be fully ready."
-        kill $NGROK_PID 2>/dev/null || true
-    fi
+    sleep 2 # Waiting 2 sec
 
     cd ..
     echo -e "\n${CYAN}Waiting for you to complete the login process...${NC}"
@@ -312,13 +169,12 @@ else
     ORG_ID=$(awk 'BEGIN { FS = "\"" } !/^[ \t]*[{}]/ { print $(NF - 1); exit }' modal-login/temp-data/userData.json)
     echo -e "\n${CYAN}ORG_ID has been set to: ${BOLD}$ORG_ID\n${NC}"
 
-    echo -e "${CYAN}Waiting for API key to become activated...${NC}"
-
     # Cleanup function for graceful shutdown
     cleanup() {
         echo -e "${YELLOW}Shutting down server and ngrok processes...${NC}"
         kill $SERVER_PID 2>/dev/null || true
         kill $NGROK_PID 2>/dev/null || true
+        pkill -f ngrok || true
         exit 0
     }
 
@@ -340,7 +196,7 @@ else
     CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
 fi
 
-echo -e "${GREEN}>>> Awesome, All packages installed successfully!\n${NC}"
+echo -e "${GREEN}Awesome, All packages installed successfully!\n${NC}"
 
 # Handle Hugging Face token
 if [ -n "${HF_TOKEN}" ]; then
