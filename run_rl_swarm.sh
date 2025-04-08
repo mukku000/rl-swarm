@@ -294,10 +294,11 @@ else
         echo -e "${GREEN}${BOLD}✓ Success! Please visit this website and log in using your email:${NC} ${CYAN}${BOLD}${FORWARDING_URL}${NC}"
     else
         echo -e "\n${BLUE}Don't worry, you can use this manual method. Please follow these instructions:${NC}"
-        echo "1. Open Command Prompt on your PC."
-        echo -e "2. Paste this command into Command Prompt: ssh -L 3000:localhost:$PORT $(whoami)@$(curl -s ifconfig.me)"
-        echo "3. After connecting, visit this website and log in using your email: http://localhost:3000/"
-        echo "4. Please note that the website may take up to 1 minute to be fully ready."
+        echo "1. Open this same WSL/VPS or GPU server on another tab"
+        echo "2. Paste this command into this terminal: ngrok http $PORT"
+        echo "3. It will show a link similar to this : https://xxxx.ngrok-free.app"
+        echo "4. Visit this website and login using your email, this website maye take 30 sec to load."
+        echo "5. Now go back to the previous tab, you will see everything will run fine"
         kill $NGROK_PID 2>/dev/null || true
     fi
 
