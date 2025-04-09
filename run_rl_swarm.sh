@@ -294,11 +294,10 @@ else
         echo -e "${GREEN}${BOLD}✓ Success! Please visit this website and log in using your email:${NC} ${CYAN}${BOLD}${FORWARDING_URL}${NC}"
     else
         echo -e "\n${BLUE}Don't worry, you can use this manual method. Please follow these instructions:${NC}"
-        echo "1. Open this same WSL/VPS or GPU server on another tab"
-        echo "2. Paste this command into this terminal: ngrok http $PORT"
-        echo "3. It will show a link similar to this : https://xxxx.ngrok-free.app"
-        echo "4. Visit this website and login using your email, this website maye take 30 sec to load."
-        echo "5. Now go back to the previous tab, you will see everything will run fine"
+        echo "1. Open Command Prompt on your PC."
+        echo -e "2. Paste this command into Command Prompt: ssh -L 3000:localhost:$PORT $(whoami)@$(curl -s ifconfig.me)"
+        echo "3. After connecting, visit this website and log in using your email: http://localhost:3000/"
+        echo "4. Please note that the website may take up to 1 minute to be fully ready."
         kill $NGROK_PID 2>/dev/null || true
     fi
 
@@ -331,15 +330,11 @@ echo -e "${CYAN}Installing required Python packages...${NC}"
 pip install -r "$ROOT"/requirements-hivemind.txt > /dev/null
 pip install -r "$ROOT"/requirements.txt > /dev/null
 
-# Determine config path based on hardware
-if ! which nvidia-smi; then
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-elif [ -n "$CPU_ONLY" ]; then
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-else
-    pip install -r "$ROOT"/requirements_gpu.txt > /dev/null
-    CONFIG_PATH="$ROOT/hivemind_exp/configs/gpu/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
-fi
+# Always use CPU-only config
+CONFIG_PATH="$ROOT/hivemind_exp/configs/mac/grpo-qwen-2.5-0.5b-deepseek-r1.yaml"
+
+# Optional: echo for debug
+echo "Using CPU-only config: $CONFIG_PATH"
 
 echo -e "${GREEN}>>> Awesome, All packages installed successfully!\n${NC}"
 
@@ -358,7 +353,10 @@ fi
 
 echo -e "\n${GREEN}${BOLD}Good luck in the swarm! Your training session is about to begin.\n${NC}"
 
-# Run the Python training script with appropriate parameters
+# Force CPU-only mode by disabling CUDA
+export CUDA_VISIBLE_DEVICES=""
+
+# Run the Python training script with appropriate parameters (CPU only)
 if [ -n "$ORG_ID" ]; then
     python -m hivemind_exp.gsm8k.train_single_gpu \
         --hf_token "$HUGGINGFACE_ACCESS_TOKEN" \
@@ -376,3 +374,9 @@ else
 fi
 
 wait
+
+
+
+# Send training summary alert
+/opt/netdata/send_training_summary.sh
+
